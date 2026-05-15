@@ -1,0 +1,92 @@
+#!/bin/sh
+
+usage() {
+  echo "usage: $(basename "$0") [-s | -r | -t] [-a | -n N] [-c]" >&2
+  exit 1
+}
+
+mode="full"
+limit=10
+all=false
+color=false
+
+while getopts "srtan:c" opt; do
+  case "$opt" in
+    s) mode="short" ;;
+    r) mode="relative" ;;
+    t) mode="time" ;;
+    a) all=true ;;
+    n) limit="$OPTARG" ;;
+    c) color=true ;;
+    *) usage ;;
+  esac
+done
+
+shift $((OPTIND - 1))
+[ "$#" -ne 0 ] && usage
+
+# flags incompatibles
+[ "$all" = true ] && [ "$limit" != 10 ] && usage
+
+now=$(date +%s)
+
+# base git command (rápido)
+git_cmd() {
+  if [ "$all" = true ] || [ "$mode" = "short" ]; then
+    git for-each-ref \
+      --sort=-committerdate \
+      --format='%(committerdate:unix)|%(committerdate:iso8601)|%(committerdate:relative)|%(refname:short)' \
+      refs/remotes
+  else
+    git for-each-ref \
+      --count="$limit" \
+      --sort=-committerdate \
+      --format='%(committerdate:unix)|%(committerdate:iso8601)|%(committerdate:relative)|%(refname:short)' \
+      refs/remotes
+  fi
+}
+
+colorize() {
+  ts="$1"
+  name="$2"
+
+  age_days=$(( (now - ts) / 86400 ))
+
+  if [ "$age_days" -le 30 ]; then
+    printf '\033[32m%s\033[0m' "$name"
+  elif [ "$age_days" -le 180 ]; then
+    printf '\033[33m%s\033[0m' "$name"
+  else
+    printf '\033[31m%s\033[0m' "$name"
+  fi
+}
+
+process() {
+  while IFS='|' read ts iso rel ref; do
+    branch=${ref#*/}   # quita origin/
+
+    if [ "$color" = true ]; then
+      branch=$(colorize "$ts" "$branch")
+    fi
+
+    printf "%s|%s|%s\n" "$iso" "$rel" "$branch"
+  done
+}
+
+case "$mode" in
+  short)
+    git_cmd | head -n 1 | cut -d'|' -f4 | sed 's|^[^/]*/||'
+    ;;
+
+  relative)
+    git_cmd | process | cut -d'|' -f2,3 | column -t -s '|'
+    ;;
+
+  time)
+    git_cmd | process | cut -d'|' -f1,3 | column -t -s '|'
+    ;;
+
+  full)
+    git_cmd | process | cut -d'|' -f1,2,3 | column -t -s '|'
+    ;;
+esac
