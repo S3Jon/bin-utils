@@ -1,2 +1,2 @@
 # bin-utils
-scripts para mejorar la experiencia
+scripts propios para mejorar la experiencia
